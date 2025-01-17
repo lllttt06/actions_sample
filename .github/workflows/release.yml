@@ -1,0 +1,87 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      choice:
+        type: choice
+        description: 'Choose a version to bump'
+        default: 'build: x.x.x+1 → x.x.x+2'
+        options:
+          - 'build: x.x.x+1 → x.x.x+2'
+          - 'patch: x.x.0+1 → x.x.1+2'
+          - 'minor: x.0.x+1 → x.1.x+2'
+          - 'major: 1.x.x+1 → 2.x.x+2'
+      build_number:
+        type: string
+        required: false
+        description: '(Option) カスタムビルドナンバー'
+
+permissions:
+  issues: write
+  contents: write
+  pull-requests: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref_name }}
+
+      # Install Flutter SDK
+      - name: Install Flutter SDK
+        uses: subosito/flutter-action@44ac965b96f18d999802d4b807e3256d5a3f9fa1 # v2.16.0
+        with:
+          channel: stable
+          flutter-version: 3.24.5
+          cache: false
+
+      - name: Install cider
+        shell: bash
+        run: dart pub global activate cider
+
+      # workflow_dispatch からバージョンを取得
+      - name: Get Semantic Version from workflow_dispatch
+        id: wd
+        run: |
+          echo "version=$(echo "${{ github.event.inputs.choice }}" | cut -d ':' -f 1)" >> $GITHUB_OUTPUT
+
+      # pubspec のバージョンを更新する
+      # ビルドナンバーが指定されている場合はそれを使う
+      - name: Bump up
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.build_number }}" ]; then
+            cider bump ${{ steps.wd.outputs.version }} --build=${{ github.event.inputs.build_number }}
+          else
+            cider bump ${{ steps.wd.outputs.version }} --bump-build
+          fi
+
+          # pubspec.lock を更新する
+          flutter pub get
+
+      # pubspec.yaml からビルド番号を取得
+      - name: Get version from pubspec.yaml
+        id: pubspec
+        run: |
+          echo "number=$(grep 'version:' pubspec.yaml | sed 's/version: //g' | tr -d ' ')" >> $GITHUB_OUTPUT
+
+      # PR を作成
+      - uses: peter-evans/create-pull-request@5e914681df9dc83aa4e4905692ca88beb2f9e91f # v7.0.5
+        id: pr
+        with:
+          branch: release-bump-up-${{ steps.wd.outputs.version }}-${{ steps.pubspec.outputs.number }}
+          title: 'release: ${{ steps.pubspec.outputs.number }} を TestFlight にデプロイ'
+          commit-message: 'release: Bump up ${{ steps.pubspec.outputs.number }}'
+          body: |
+            - ${{ steps.pubspec.outputs.number }} を TestFlight にデプロイします。
+          base: ${{ github.ref_name }}
+          delete-branch: true
+          add-paths: |
+            pubspec.yaml
+            pubspec.lock
+
