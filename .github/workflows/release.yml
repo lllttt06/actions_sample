@@ -70,10 +70,18 @@ jobs:
         run: |
           echo "number=$(grep 'version:' pubspec.yaml | sed 's/version: //g' | tr -d ' ')" >> $GITHUB_OUTPUT
 
+      # GitHub Apps でトークンを取得する
+      - uses: actions/create-github-app-token@v1
+        id: app-token
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.PRIVATE_KEY }}
+
       # PR を作成
       - uses: peter-evans/create-pull-request@5e914681df9dc83aa4e4905692ca88beb2f9e91f # v7.0.5
         id: pr
         with:
+          token: ${{ steps.app-token.outputs.token }}
           branch: release-bump-up-${{ steps.wd.outputs.version }}-${{ steps.pubspec.outputs.number }}
           title: 'release: ${{ steps.pubspec.outputs.number }} を TestFlight にデプロイ'
           commit-message: 'release: Bump up ${{ steps.pubspec.outputs.number }}'
@@ -89,6 +97,7 @@ jobs:
       - name: Run command testflight dev
         uses: actions/github-script@v7
         with:
+          token: ${{ steps.app-token.outputs.token }}
           script: |
             github.rest.issues.createComment({
               issue_number: ${{ steps.pr.outputs.pull-request-number }},
